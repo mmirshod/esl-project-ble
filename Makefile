@@ -94,6 +94,7 @@ SRC_FILES += \
   $(SDK_ROOT)/components/ble/common/ble_advdata.c \
   $(SDK_ROOT)/components/ble/ble_advertising/ble_advertising.c \
   $(PROJ_DIR)/main.c \
+  $(PROJ_DIR)/estc_service.c
 
 # Include folders common to all targets
 INC_FOLDERS += \
@@ -227,6 +228,7 @@ INC_FOLDERS += \
   $(SDK_ROOT)/components/ble/ble_dtm \
   $(SDK_ROOT)/components/ble/ble_advertising \
   $(SDK_ROOT)/components \
+  $(PROJ_DIR) \
 
 # Libraries common to all targets
 LIB_FILES += \
