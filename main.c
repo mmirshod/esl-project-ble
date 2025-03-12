@@ -406,6 +406,8 @@ static void advertising_init(void)
 
     memset(&init, 0, sizeof(init));
 
+    // Workshop 9 (move full name and uuids_complete to scan response)
+
     init.advdata.name_type               = BLE_ADVDATA_SHORT_NAME;
     init.advdata.short_name_len          = 4;
     init.advdata.include_appearance      = false;

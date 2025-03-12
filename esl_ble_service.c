@@ -14,6 +14,7 @@ ret_code_t esl_ble_service_init(esl_ble_service_t *service)
     ret_code_t ret_code = NRF_SUCCESS;
 
     ble_uuid_t service_uuid;
+    // Workshop 10 --> Add service UUIDs to the BLE stack table using `sd_ble_uuid_vs_add`
     ble_uuid128_t base_uuid = {
         .uuid128 = ESL_BASE_UUID
     };
@@ -22,6 +23,7 @@ ret_code_t esl_ble_service_init(esl_ble_service_t *service)
     ret_code = sd_ble_uuid_vs_add(&base_uuid, &service_uuid.type);
     APP_ERROR_CHECK(ret_code);
 
+    // Workshop 11 --> Add service to the BLE stack using `sd_ble_gatts_service_add`
     ret_code = sd_ble_gatts_service_add(BLE_GATTS_SRVC_TYPE_PRIMARY,
                                         &service_uuid,
                                         &service->service_handle);
@@ -32,6 +34,7 @@ ret_code_t esl_ble_service_init(esl_ble_service_t *service)
     return esl_ble_add_char(service);
 }
 
+// Workshop 11 adding custom characteristic to the service
 static ret_code_t esl_ble_add_char(esl_ble_service_t *service)
 {
     ret_code_t ret_code = NRF_SUCCESS;
