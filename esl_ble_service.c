@@ -22,7 +22,10 @@ static ret_code_t esl_ble_base_uuid_add(esl_ble_service_t* service) {
     ret_code = sd_ble_uuid_vs_add(&base_uuid, &service_uuid.type);
     APP_ERROR_CHECK(ret_code);
 
-    service->uuid = service_uuid;
+    ret_code = sd_ble_gatts_service_add(BLE_GATTS_SRVC_TYPE_PRIMARY,
+                                        &service_uuid,
+                                        &service->service_handle);
+    APP_ERROR_CHECK(ret_code);
 
     UNUSED_VARIABLE(ret_code);
 

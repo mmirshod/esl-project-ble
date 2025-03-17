@@ -22,6 +22,7 @@ typedef struct
 {
     ble_uuid_t uuid;
     uint16_t service_handle;
+    // Workshop 10 -->  Add handles for characterstic (type: ble_gatts_char_handles_t)
     uint16_t connection_handle;
     ble_gatts_char_handles_t char_1_handle;
     ble_gatts_char_handles_t char_2_handle;
