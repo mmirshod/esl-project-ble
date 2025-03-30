@@ -56,6 +56,8 @@ NRF_BLE_GATT_DEF(m_gatt);                                                       
 NRF_BLE_QWR_DEF(m_qwr);                                                         /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                             /**< Advertising module instance. */
 
+APP_TIMER_DEF(updater_timer);
+
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                        /**< Handle of the current connection. */
 
 static ble_uuid_t m_adv_uuids[] =                                               /**< Universally unique service identifiers. */
@@ -67,8 +69,72 @@ static ble_uuid_t m_adv_uuids[] =                                               
 
 esl_ble_service_t m_esl_service; /**< ESTC example BLE service */
 
+uint8_t global_counter = 0;
+
 static void advertising_start(void);
 
+static void send_notification() {
+    ret_code_t err_code;
+
+    uint16_t len = sizeof(global_counter);
+    ble_gatts_hvx_params_t hvx_params = {
+        .handle = m_esl_service.char_2_handle.value_handle,
+        .offset = 0,
+        .p_len = &(len),
+        .p_data = &(global_counter),
+        .type = BLE_GATT_HVX_NOTIFICATION
+    };
+    err_code = sd_ble_gatts_hvx(m_esl_service.connection_handle, &hvx_params);
+    APP_ERROR_CHECK(err_code);
+}
+
+static void send_indication() {
+    ret_code_t err_code;
+    
+    uint16_t len = sizeof(global_counter);
+    ble_gatts_hvx_params_t hvx_params = {
+        .handle = m_esl_service.char_3_handle.value_handle,
+        .offset = 0,
+        .p_len = &(len),
+        .p_data = &(global_counter),
+        .type = BLE_GATT_HVX_INDICATION
+    };
+    err_code = sd_ble_gatts_hvx(m_esl_service.connection_handle, &hvx_params);
+    APP_ERROR_CHECK(err_code);
+}
+
+static void handle_updater_timeout(void *p_context) {    
+    if (m_esl_service.connection_handle == BLE_CONN_HANDLE_INVALID) {
+        NRF_LOG_ERROR("Connection Handle Invalid");
+        return;
+    }
+
+    uint8_t type;
+    ble_gatts_value_t cccd = {
+        .p_value = &type,
+        .offset = 0,
+        .len = sizeof(type)
+    };
+
+    sd_ble_gatts_value_get(m_esl_service.connection_handle, m_esl_service.char_2_handle.cccd_handle, &cccd);
+    
+    if (type == BLE_GATT_HVX_NOTIFICATION) {
+        send_notification();
+    } else {
+        NRF_LOG_INFO("Notifications are turned off on notifier");
+    }
+
+    sd_ble_gatts_value_get(m_esl_service.connection_handle, m_esl_service.char_3_handle.cccd_handle, &cccd);
+    
+    if (type == BLE_GATT_HVX_INDICATION) {
+        send_indication();
+    } else {
+        NRF_LOG_INFO("Indications are turned off on indicator");
+    }
+
+    global_counter = (global_counter >= 10) ? 0 : global_counter + 1;
+    NRF_LOG_INFO("Counter updated: %d", global_counter);
+}
 
 /**@brief Callback function for asserts in the SoftDevice.
  *
@@ -94,6 +160,12 @@ static void timers_init(void)
 {
     // Initialize timer module.
     ret_code_t err_code = app_timer_init();
+    APP_ERROR_CHECK(err_code);
+
+    err_code = app_timer_create(&updater_timer, APP_TIMER_MODE_REPEATED, handle_updater_timeout);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = app_timer_start(updater_timer, APP_TIMER_TICKS(5000), NULL);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -307,6 +379,7 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
             APP_ERROR_CHECK(err_code);
+
             break;
 
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST:

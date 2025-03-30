@@ -6,8 +6,7 @@
 #include "ble_gatts.h"
 #include "ble_srv_common.h"
 
-// static uint8_t notifier_val = 0;
-// static uint8_t indicator_val = 0;
+extern uint8_t global_counter;
 
 static ret_code_t esl_ble_base_uuid_add(esl_ble_service_t* service) {
     ret_code_t ret_code = NRF_SUCCESS;
@@ -115,9 +114,10 @@ static ret_code_t esl_ble_add_char_indicator(esl_ble_service_t *service) {
     ble_gatts_attr_t indicator_attr_val = {
         .p_uuid = &indicator_char_uuid,
         .p_attr_md = &attr_md,
-        .init_len = 0,
-        .max_len = 5,
-        .init_offs = 0
+        .init_len = sizeof(global_counter),
+        .max_len = sizeof(global_counter),
+        .init_offs = 0,
+        .p_value = &global_counter
     };
 
     ble_gatts_char_md_t indicator_char_md = {
@@ -128,7 +128,7 @@ static ret_code_t esl_ble_add_char_indicator(esl_ble_service_t *service) {
     ret = sd_ble_gatts_characteristic_add(service->service_handle,
                                           &indicator_char_md,
                                           &indicator_attr_val,
-                                          &service->char_2_handle);
+                                          &service->char_3_handle);
     return ret;
 }
 
@@ -155,9 +155,10 @@ static ret_code_t esl_ble_add_char_notifier(esl_ble_service_t *service) {
     ble_gatts_attr_t notifier_attr_val = {
         .p_uuid = &notifier_char_uuid,
         .p_attr_md = &attr_md,
-        .init_len = 0,
-        .max_len = 5,
-        .init_offs = 0
+        .init_len = sizeof(global_counter),
+        .max_len = sizeof(global_counter),
+        .init_offs = 0,
+        .p_value = &global_counter
     };
 
     ble_gatts_char_md_t notifier_char_md = {
@@ -193,14 +194,6 @@ ret_code_t esl_ble_service_init(esl_ble_service_t *service)
 
     ret_code = esl_ble_add_char_indicator(service);
     APP_ERROR_CHECK(ret_code);
-
-    // ret_code = esl_ble_add_char(service, ESL_NOTIFICATIONS_CHAR_UUID, &service->char_2_handle, 
-    //                             ESL_BLE_CHAR_PROPS_WRITE | ESL_BLE_CHAR_PROPS_NOTIFY, 1);
-    // APP_ERROR_CHECK(ret_code);
-
-    // ret_code = esl_ble_add_char(service->service_handle, ESL_INDICATIONS_CHAR_UUID, &service->char_3_handle, 
-    //                             ESL_BLE_CHAR_PROPS_WRITE | ESL_BLE_CHAR_PROPS_INDICATE, 5);
-    // APP_ERROR_CHECK(ret_code);
 
     UNUSED_VARIABLE(ret_code);
 
