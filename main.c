@@ -44,7 +44,7 @@
 #define MAX_CONN_INTERVAL               MSEC_TO_UNITS(200, UNIT_1_25_MS)        /**< Maximum acceptable connection interval (0.2 second). */
 #define SLAVE_LATENCY                   0                                       /**< Slave latency. */
 #define CONN_SUP_TIMEOUT                MSEC_TO_UNITS(4000, UNIT_10_MS)         /**< Connection supervisory timeout (4 seconds). */
-#define NOTIFIER_TIMEOUT_MS             5000
+#define UPDATE_TIMEOUT_MS               5000
 
 #define FIRST_CONN_PARAMS_UPDATE_DELAY  APP_TIMER_TICKS(5000)                   /**< Time from initiating event (connect or start of notification) to first time sd_ble_gap_conn_param_update is called (5 seconds). */
 #define NEXT_CONN_PARAMS_UPDATE_DELAY   APP_TIMER_TICKS(30000)                  /**< Time between each call to sd_ble_gap_conn_param_update after the first call (30 seconds). */
@@ -55,20 +55,23 @@
 NRF_BLE_GATT_DEF(m_gatt);                                                       /**< GATT module instance. */
 NRF_BLE_QWR_DEF(m_qwr);                                                         /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                             /**< Advertising module instance. */
+APP_TIMER_DEF(update_timer_id);
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                        /**< Handle of the current connection. */
 
 static ble_uuid_t m_adv_uuids[] =                                               /**< Universally unique service identifiers. */
 {
     {BLE_UUID_DEVICE_INFORMATION_SERVICE, BLE_UUID_TYPE_BLE},
-    // TODO: 5. Add ESTC service UUID to the table
     {ESL_SERVICE_UUID, BLE_UUID_TYPE_BLE}
 };
 
-esl_ble_service_t m_esl_service; /**< ESTC example BLE service */
+esl_ble_service_t m_esl_service;
+uint8_t r_val = 255;
+uint8_t g_val = 255;
+uint8_t b_val = 255;
+uint8_t is_led_off = 1;
 
 static void advertising_start(void);
-
 
 /**@brief Callback function for asserts in the SoftDevice.
  *
@@ -166,6 +169,16 @@ static void services_init(void)
     APP_ERROR_CHECK(err_code);
 
     err_code = esl_ble_service_init(&m_esl_service);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = esl_ble_add_char(
+        &m_esl_service,
+        ESL_BLE_CHAR_LED_STATE_UUID,
+        &m_esl_service.char_led_state_handle,
+        ESL_BLE_CHAR_PROPS_WRITE | ESL_BLE_CHAR_PROPS_READ | ESL_BLE_CHAR_PROPS_NOTIFY,
+        &is_led_off,
+        sizeof(is_led_off)
+    );
     APP_ERROR_CHECK(err_code);
 }
 
