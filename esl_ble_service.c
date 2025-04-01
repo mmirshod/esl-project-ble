@@ -6,9 +6,6 @@
 #include "ble_gatts.h"
 #include "ble_srv_common.h"
 
-// static uint8_t notifier_val = 0;
-// static uint8_t indicator_val = 0;
-
 static ret_code_t esl_ble_base_uuid_add(esl_ble_service_t* service) {
     ret_code_t ret_code = NRF_SUCCESS;
     
@@ -29,12 +26,13 @@ static ret_code_t esl_ble_base_uuid_add(esl_ble_service_t* service) {
     return ret_code;
 }
 
-static ret_code_t esl_ble_add_char(
+ret_code_t esl_ble_add_char(
     esl_ble_service_t *service,
     uint16_t char_uuid,
     ble_gatts_char_handles_t *char_handle,
     uint8_t props,
-    uint16_t max_len
+    void *p_val,
+    uint16_t val_len
 ) {
     ret_code_t ret_code = NRF_SUCCESS;
 
@@ -74,104 +72,18 @@ static ret_code_t esl_ble_add_char(
         .p_uuid = &char_ble_uuid,
         .p_attr_md = &attr_md,
         .init_offs = 0,
-        .init_len = 0,
-        .max_len = max_len
+        .init_len = val_len,
+        .max_len = val_len,
+        .p_value = (uint8_t*)p_val
     };
-
-    // if (char_md.char_props.notify || char_md.char_props.indicate) {
-    //     attr_char_value.init_len = sizeof(notifier_val);
-    //     attr_char_value.max_len = sizeof(notifier_val);
-    // }
 
     ret_code = sd_ble_gatts_characteristic_add(service->service_handle,
                                                &char_md,
                                                &attr_char_value, 
-                                               char_handle);
-    
+                                               char_handle);    
     APP_ERROR_CHECK(ret_code);
 
     return ret_code;
-}
-
-static ret_code_t esl_ble_add_char_indicator(esl_ble_service_t *service) {
-    ret_code_t ret = NRF_SUCCESS;
-
-    ble_uuid_t indicator_char_uuid = {
-        .uuid = ESL_INDICATIONS_CHAR_UUID,
-        .type = service->uuid.type
-    };
-
-    ble_gatts_attr_md_t attr_md = {
-        .vloc = BLE_GATTS_VLOC_STACK,
-    };
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.read_perm);
-
-    ble_gatts_attr_md_t cccd_md = {
-        .vloc = BLE_GATTS_VLOC_STACK,
-    };
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.write_perm);
-
-    ble_gatts_attr_t indicator_attr_val = {
-        .p_uuid = &indicator_char_uuid,
-        .p_attr_md = &attr_md,
-        .init_len = 0,
-        .max_len = 5,
-        .init_offs = 0
-    };
-
-    ble_gatts_char_md_t indicator_char_md = {
-        .char_props.indicate = 1,
-        .p_cccd_md = &cccd_md,
-    };
-
-    ret = sd_ble_gatts_characteristic_add(service->service_handle,
-                                          &indicator_char_md,
-                                          &indicator_attr_val,
-                                          &service->char_2_handle);
-    return ret;
-}
-
-static ret_code_t esl_ble_add_char_notifier(esl_ble_service_t *service) {
-    ret_code_t ret = NRF_SUCCESS;
-
-    ble_uuid_t notifier_char_uuid = {
-        .uuid = ESL_NOTIFICATIONS_CHAR_UUID,
-        .type = service->uuid.type
-    };
-
-    ble_gatts_attr_md_t attr_md = {
-        .vloc = BLE_GATTS_VLOC_STACK,
-    };
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.write_perm);
-
-    ble_gatts_attr_md_t cccd_md = {
-        .vloc = BLE_GATTS_VLOC_STACK,
-    };
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.read_perm);
-    BLE_GAP_CONN_SEC_MODE_SET_OPEN(&cccd_md.write_perm);
-
-    ble_gatts_attr_t notifier_attr_val = {
-        .p_uuid = &notifier_char_uuid,
-        .p_attr_md = &attr_md,
-        .init_len = 0,
-        .max_len = 5,
-        .init_offs = 0
-    };
-
-    ble_gatts_char_md_t notifier_char_md = {
-        .char_props.notify = 1,
-        .char_props.write = 1,
-        .p_cccd_md = &cccd_md,
-    };
-
-    ret = sd_ble_gatts_characteristic_add(service->service_handle,
-                                          &notifier_char_md,
-                                          &notifier_attr_val,
-                                          &service->char_2_handle);
-
-    return ret;
 }
 
 ret_code_t esl_ble_service_init(esl_ble_service_t *service)
@@ -184,25 +96,26 @@ ret_code_t esl_ble_service_init(esl_ble_service_t *service)
                                         &service->service_handle);
     APP_ERROR_CHECK(ret_code);
 
-    ret_code = esl_ble_add_char(service, ESL_GATT_CHAR_1_UUID, &service->char_1_handle, 
-                                ESL_BLE_CHAR_PROPS_READ | ESL_BLE_CHAR_PROPS_WRITE, 5);
-    APP_ERROR_CHECK(ret_code);
-
-    ret_code = esl_ble_add_char_notifier(service);
-    APP_ERROR_CHECK(ret_code);
-
-    ret_code = esl_ble_add_char_indicator(service);
-    APP_ERROR_CHECK(ret_code);
-
-    // ret_code = esl_ble_add_char(service, ESL_NOTIFICATIONS_CHAR_UUID, &service->char_2_handle, 
-    //                             ESL_BLE_CHAR_PROPS_WRITE | ESL_BLE_CHAR_PROPS_NOTIFY, 1);
-    // APP_ERROR_CHECK(ret_code);
-
-    // ret_code = esl_ble_add_char(service->service_handle, ESL_INDICATIONS_CHAR_UUID, &service->char_3_handle, 
-    //                             ESL_BLE_CHAR_PROPS_WRITE | ESL_BLE_CHAR_PROPS_INDICATE, 5);
-    // APP_ERROR_CHECK(ret_code);
-
     UNUSED_VARIABLE(ret_code);
 
     return ret_code;
+}
+
+ret_code_t esl_ble_service_notify(
+    esl_ble_service_t *service,
+    ble_gatts_char_handles_t *char_handle,
+    uint8_t *p_data
+) {
+
+    uint16_t len = sizeof(p_data);
+    ble_gatts_hvx_params_t hvx_params = {
+        .handle = char_handle->value_handle,
+        .offset = 0,
+        .p_len = &len,
+        .p_data = p_data,
+        .type = BLE_GATT_HVX_NOTIFICATION
+    };
+
+    ret_code_t err_code = sd_ble_gatts_hvx(service->connection_handle, &hvx_params);
+    return err_code;
 }
