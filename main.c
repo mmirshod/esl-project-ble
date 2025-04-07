@@ -24,6 +24,7 @@
 #include "nrf_ble_gatt.h"
 #include "nrf_ble_qwr.h"
 #include "nrf_pwr_mgmt.h"
+#include "fds.h"
 
 #include "nrf_log.h"
 #include "nrf_log_ctrl.h"
@@ -31,6 +32,9 @@
 #include "nrf_log_backend_usb.h"
 
 #include "esl_ble_service.h"
+#include "esl_gpio.h"
+#include "esl_pwm.h"
+#include "esl_fds.h"
 
 #define DEVICE_NAME                     "ESTC-Mirshod"                          /**< Name of device. Will be included in the advertising data. */
 #define MANUFACTURER_NAME               "NordicSemiconductor"                   /**< Manufacturer. Will be passed to Device Information Service. */
@@ -55,7 +59,6 @@
 NRF_BLE_GATT_DEF(m_gatt);                                                       /**< GATT module instance. */
 NRF_BLE_QWR_DEF(m_qwr);                                                         /**< Context for the Queued Write module.*/
 BLE_ADVERTISING_DEF(m_advertising);                                             /**< Advertising module instance. */
-APP_TIMER_DEF(update_timer_id);
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;                        /**< Handle of the current connection. */
 
@@ -65,13 +68,78 @@ static ble_uuid_t m_adv_uuids[] =                                               
     {ESL_SERVICE_UUID, BLE_UUID_TYPE_BLE}
 };
 
+esl_pwm_context_t m_pwm_ctx;
+
 esl_ble_service_t m_esl_service;
-uint8_t r_val = 255;
-uint8_t g_val = 255;
-uint8_t b_val = 255;
-uint8_t is_led_off = 1;
 
 static void advertising_start(void);
+
+static void update_color_in_flash() {
+    fds_record_desc_t desc;
+    fds_find_token_t token = { 0 };
+    ret_code_t err_code = fds_record_find(LED_STATE_FILE_ID, LED_STATE_RECORD_KEY, &desc, &token);
+
+    if (err_code == NRF_SUCCESS) {
+        if (esl_fds_update(&desc, &m_pwm_ctx.rgb_state, sizeof(m_pwm_ctx.rgb_state)) == NRF_SUCCESS) {
+            NRF_LOG_INFO("Color state updated in flash memory");
+        }
+        else { 
+            NRF_LOG_ERROR("Color state failed to update");
+        }
+    } else if (err_code == FDS_ERR_NOT_FOUND) {
+        if (esl_fds_write(&m_pwm_ctx.rgb_state, sizeof(m_pwm_ctx.rgb_state)) == NRF_SUCCESS) {
+            NRF_LOG_INFO("Color State was written in flash memory");
+        }
+        else {
+            NRF_LOG_ERROR("Color state failed to be written");
+        }
+    } else {
+        NRF_LOG_ERROR("Couldn't update the color in flash memory");
+    }
+}
+
+static void fds_evt_handler(fds_evt_t const *p_evt) {
+    if (p_evt->result == NRF_SUCCESS) {
+        NRF_LOG_INFO("FDS Operation Successful");
+        if (p_evt->id == FDS_EVT_WRITE || p_evt->id == FDS_EVT_UPDATE) {
+            ret_code_t err_code = fds_gc();
+            if (err_code == NRF_SUCCESS) {
+                NRF_LOG_INFO("Garbage collection started.");
+            } else {
+                NRF_LOG_ERROR("Garbage collection failed: %d", err_code);
+            }
+        }
+    } else {
+        NRF_LOG_ERROR("FDS Operation failed: %d", p_evt->result);
+    }
+}
+
+static ret_code_t esl_fds_init(void) {
+    ret_code_t err_code;
+
+    err_code = fds_register(fds_evt_handler);
+    APP_ERROR_CHECK(err_code);
+
+    err_code =  fds_init();
+    APP_ERROR_CHECK(err_code);
+
+    fds_find_token_t token = { 0 };
+    fds_record_desc_t record_desc;
+    err_code = fds_record_find(LED_STATE_FILE_ID, LED_STATE_RECORD_KEY, &record_desc, &token);
+    if (err_code == NRF_SUCCESS) {
+        err_code = esl_fds_read(&record_desc, &m_pwm_ctx.rgb_state, sizeof(m_pwm_ctx.rgb_state));
+        NRF_LOG_INFO("Successfully loaded last RGB State (rgb - on/off): %d %d %d - %d", 
+            m_pwm_ctx.rgb_state.red,
+            m_pwm_ctx.rgb_state.green,
+            m_pwm_ctx.rgb_state.blue,
+            m_pwm_ctx.rgb_state.is_on
+        );
+    } else if (err_code == FDS_ERR_NOT_FOUND) {
+        NRF_LOG_INFO("Couldn't find last color record");
+        update_color_in_flash();
+    }
+    return err_code;
+}
 
 /**@brief Callback function for asserts in the SoftDevice.
  *
@@ -88,6 +156,7 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
 {
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }
+
 
 /**@brief Function for the Timer initialization.
  *
@@ -171,14 +240,16 @@ static void services_init(void)
     err_code = esl_ble_service_init(&m_esl_service);
     APP_ERROR_CHECK(err_code);
 
-    err_code = esl_ble_add_char(
-        &m_esl_service,
-        ESL_BLE_CHAR_LED_STATE_UUID,
-        &m_esl_service.char_led_state_handle,
-        ESL_BLE_CHAR_PROPS_WRITE | ESL_BLE_CHAR_PROPS_READ | ESL_BLE_CHAR_PROPS_NOTIFY,
-        &is_led_off,
-        sizeof(is_led_off)
-    );
+    err_code = esl_ble_add_char(&m_esl_service, ESL_BLE_CHAR_LED_STATE_UUID, &m_esl_service.char_led_state_handle, &m_pwm_ctx.rgb_state.is_on);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = esl_ble_add_char(&m_esl_service, ESL_BLE_CHAR_RGB_R_STATE_UUID, &m_esl_service.char_rgb_r_state_handle, &m_pwm_ctx.rgb_state.red);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = esl_ble_add_char(&m_esl_service, ESL_BLE_CHAR_RGB_G_STATE_UUID, &m_esl_service.char_rgb_g_state_handle, &m_pwm_ctx.rgb_state.green);
+    APP_ERROR_CHECK(err_code);
+
+    err_code = esl_ble_add_char(&m_esl_service, ESL_BLE_CHAR_RGB_B_STATE_UUID, &m_esl_service.char_rgb_b_state_handle, &m_pwm_ctx.rgb_state.blue);
     APP_ERROR_CHECK(err_code);
 }
 
@@ -350,6 +421,152 @@ static void ble_evt_handler(ble_evt_t const * p_ble_evt, void * p_context)
             APP_ERROR_CHECK(err_code);
             break;
 
+        case BLE_GATTS_EVT_WRITE: {
+            const ble_gatts_evt_write_t* p_evt_write_params = &p_ble_evt->evt.gatts_evt.params.write;
+            uint8_t temp_val = p_evt_write_params->data[0];
+            if (p_evt_write_params->len == sizeof(m_pwm_ctx.rgb_state.is_on)) {
+                if (p_evt_write_params->handle == m_esl_service.char_led_state_handle.value_handle) {
+                    if (temp_val == 0 || temp_val == 1) {
+                        m_pwm_ctx.rgb_state.is_on = temp_val;
+                        err_code = esl_ble_char_value_update(
+                            m_esl_service.connection_handle,
+                            m_esl_service.char_led_state_handle.value_handle,
+                            &m_pwm_ctx.rgb_state.is_on
+                        );
+
+                        if (err_code != NRF_SUCCESS) {
+                            NRF_LOG_ERROR("ERROR: Failed to update data in SoftDevice");
+                        }
+                        
+                        esl_pwm_update_rgb(&m_pwm_ctx);
+                        esl_pwm_play_seq(&m_pwm_ctx);
+                        NRF_LOG_INFO("LED STATE UPDATED: %d", m_pwm_ctx.rgb_state.is_on);
+
+                        update_color_in_flash();
+
+                        uint8_t op_type;
+                        err_code = esl_ble_char_handle_value_get(
+                            m_esl_service.connection_handle,
+                            m_esl_service.char_led_state_handle.cccd_handle,
+                            &op_type
+                        );
+                        if (err_code != NRF_SUCCESS) {
+                            NRF_LOG_ERROR("Failed to extract operation type");
+                        }
+
+                        if (op_type == BLE_GATT_HVX_NOTIFICATION) {
+                            err_code = esl_ble_service_notify(&m_esl_service, &m_esl_service.char_led_state_handle);
+                            if (err_code != NRF_SUCCESS) {
+                                NRF_LOG_ERROR("NOTIFICATIONS ERROR OCCURED: %d", err_code);
+                            }
+                        } else {
+                            NRF_LOG_INFO("Notifications are turned off");
+                        }
+                    } else {
+                        NRF_LOG_ERROR("INVALID VALUE: LED State expects only 0 or 1");
+                    }
+                } else if (
+                    p_evt_write_params->handle == m_esl_service.char_rgb_r_state_handle.value_handle ||
+                    p_evt_write_params->handle == m_esl_service.char_rgb_g_state_handle.value_handle ||
+                    p_evt_write_params->handle == m_esl_service.char_rgb_b_state_handle.value_handle
+                ) {
+                    if (temp_val >= 0 && temp_val <= 255) {
+                        if (p_evt_write_params->handle == m_esl_service.char_rgb_r_state_handle.value_handle) {
+                            m_pwm_ctx.rgb_state.red = temp_val;
+                            esl_ble_char_value_update(
+                                m_esl_service.connection_handle,
+                                m_esl_service.char_rgb_r_state_handle.value_handle,
+                                &m_pwm_ctx.rgb_state.red
+                            );
+                            NRF_LOG_INFO("Red value updated: %d", m_pwm_ctx.rgb_state.red);
+                            uint8_t op_type;
+                            err_code = esl_ble_char_handle_value_get(
+                                m_esl_service.connection_handle,
+                                m_esl_service.char_led_state_handle.cccd_handle,
+                                &op_type
+                            );
+
+                            if (err_code != NRF_SUCCESS) {
+                                NRF_LOG_ERROR("Failed to extract operation type");
+                            }
+                            if (op_type == BLE_GATT_HVX_NOTIFICATION) {
+                                if (esl_ble_service_notify(&m_esl_service, &m_esl_service.char_rgb_r_state_handle) != NRF_SUCCESS) {
+                                    NRF_LOG_ERROR("ERROR: Notification couldn't be send");
+                                }
+                            } else {
+                                NRF_LOG_INFO("Notifications are turned off");
+                            }
+                        } else if (p_evt_write_params->handle == m_esl_service.char_rgb_g_state_handle.value_handle) {
+                            m_pwm_ctx.rgb_state.green = temp_val;
+                            esl_ble_char_value_update(
+                                m_esl_service.connection_handle,
+                                m_esl_service.char_rgb_g_state_handle.value_handle,
+                                &m_pwm_ctx.rgb_state.green
+                            );
+
+                            NRF_LOG_INFO("Green value updated: %d", m_pwm_ctx.rgb_state.green);
+
+                            uint8_t op_type;
+                            err_code = esl_ble_char_handle_value_get(
+                                m_esl_service.connection_handle,
+                                m_esl_service.char_led_state_handle.cccd_handle,
+                                &op_type
+                            );
+
+                            if (err_code != NRF_SUCCESS) {
+                                NRF_LOG_ERROR("Failed to extract operation type");
+                            }
+                            if (op_type == BLE_GATT_HVX_NOTIFICATION) {
+                                if (esl_ble_service_notify(&m_esl_service, &m_esl_service.char_rgb_g_state_handle) != NRF_SUCCESS) {
+                                    NRF_LOG_ERROR("ERROR: Notification couldn't be send");
+                                }
+                            } else {
+                                NRF_LOG_INFO("Notifications are turned off");
+                            }
+                        } else if (p_evt_write_params->handle == m_esl_service.char_rgb_b_state_handle.value_handle) {
+                            m_pwm_ctx.rgb_state.blue = temp_val;
+                            esl_ble_char_value_update(
+                                m_esl_service.connection_handle,
+                                m_esl_service.char_rgb_b_state_handle.value_handle,
+                                &m_pwm_ctx.rgb_state.blue
+                            );
+                            NRF_LOG_INFO("Blue value updated: %d", m_pwm_ctx.rgb_state.blue);
+
+                            uint8_t op_type;
+                            err_code = esl_ble_char_handle_value_get(
+                                m_esl_service.connection_handle,
+                                m_esl_service.char_led_state_handle.cccd_handle,
+                                &op_type
+                            );
+
+                            if (err_code != NRF_SUCCESS) {
+                                NRF_LOG_ERROR("Failed to extract operation type");
+                            }
+                            if (op_type == BLE_GATT_HVX_NOTIFICATION) {
+                                if (esl_ble_service_notify(&m_esl_service, &m_esl_service.char_rgb_b_state_handle) != NRF_SUCCESS) {
+                                    NRF_LOG_ERROR("ERROR: Notification couldn't be send");
+                                }
+                            } else {
+                                NRF_LOG_INFO("Notifications are turned off");
+                            }
+                        }
+                        esl_pwm_update_rgb(&m_pwm_ctx);
+                        esl_pwm_play_seq(&m_pwm_ctx);
+
+                        update_color_in_flash();
+                        
+                        NRF_LOG_INFO("Saving new color (r/g/b): %d, %d, %d", m_pwm_ctx.rgb_state.red, m_pwm_ctx.rgb_state.green, m_pwm_ctx.rgb_state.blue);
+                    } else {
+                        NRF_LOG_ERROR("RGB expects values between 0-255");
+                    }
+                } else {
+                    NRF_LOG_ERROR("Not implemented yet");
+                }
+            } else {
+                NRF_LOG_INFO("INVALID LENGTH: expects only 1 byte of data");
+            }
+        } break;
+
         default:
             // No implementation needed.
             break;
@@ -457,6 +674,8 @@ static void buttons_leds_init(void)
 
     err_code = bsp_btn_ble_init(NULL, NULL);
     APP_ERROR_CHECK(err_code);
+
+    esl_cfg_pins();
 }
 
 
@@ -519,9 +738,14 @@ int main(void)
     services_init();
     advertising_init();
     conn_params_init();
+    esl_pwm_init(&m_pwm_ctx);
+
+    esl_fds_init();
+
+    esl_pwm_update_rgb(&m_pwm_ctx);
+    esl_pwm_play_seq(&m_pwm_ctx);
 
     // Start execution.
-    NRF_LOG_INFO("ESTC GATT service example started");
     application_timers_start();
 
     advertising_start();

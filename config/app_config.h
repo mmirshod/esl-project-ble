@@ -127,4 +127,16 @@
 
 // </e>
 
+#ifndef PWM_TOP_VAL
+#define PWM_TOP_VAL                     255
+#endif
+
+#ifndef LED_STATE_FILE_ID
+#define LED_STATE_FILE_ID               0x1111
+#endif
+
+#ifndef LED_STATE_RECORD_KEY
+#define LED_STATE_RECORD_KEY            0x2222
+#endif
+
 #endif

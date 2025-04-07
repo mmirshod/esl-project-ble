@@ -42,5 +42,5 @@ void esl_led_off(esl_io_pin_t pin) {
 }
 
 bool esl_btn_is_pressed(void) {
-    return !nrf_gpio_pin_read(SW1);
+    return !nrf_gpio_pin_read(ESL_IO_PIN_SW1);
 }
